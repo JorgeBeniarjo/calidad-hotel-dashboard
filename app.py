@@ -34,12 +34,7 @@ st.sidebar.page_link("pages/4_Historico.py", label="Histórico")
 st.subheader("Resumen de hoy")
 
 df_raw = get_sheet_data("REVISIONES")
-
-if df_raw.empty:
-    st.warning("No se pudieron cargar datos de revisiones. Comprueba la conexión con Google Sheets.")
-    st.stop()
-
-df = preparar_revisiones(df_raw)
+df = preparar_revisiones(df_raw) if not df_raw.empty else pd.DataFrame()
 hoy = pd.Timestamp(date.today())
 df_hoy = df[df["FECHA"].dt.date == hoy.date()] if "FECHA" in df.columns else pd.DataFrame()
 
@@ -53,18 +48,21 @@ with col2:
         media = df_hoy["PUNTUACION"].mean()
         st.metric("Media hoy", f"{media:.2f}")
     else:
-        st.metric("Media hoy", "—")
+        st.metric("Media hoy", 0)
 
 with col3:
     if not df_hoy.empty and "ESTADO" in df_hoy.columns:
         abiertas = (df_hoy["ESTADO"].str.lower() == "abierta").sum()
         st.metric("Abiertas", int(abiertas))
     else:
-        st.metric("Abiertas", "—")
+        st.metric("Abiertas", 0)
 
 with col4:
     if not df_hoy.empty and "ESTADO" in df_hoy.columns:
         resueltas = (df_hoy["ESTADO"].str.lower() == "resuelta").sum()
         st.metric("Resueltas", int(resueltas))
     else:
-        st.metric("Resueltas", "—")
+        st.metric("Resueltas", 0)
+
+if df_hoy.empty:
+    st.info("No hay revisiones registradas hoy.")

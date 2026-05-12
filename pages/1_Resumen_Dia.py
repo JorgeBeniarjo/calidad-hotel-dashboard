@@ -12,11 +12,7 @@ st.title("📋 Resumen del Día")
 df_revisiones_raw = get_sheet_data("REVISIONES")
 df_personal = get_sheet_data("PERSONAL")
 
-if df_revisiones_raw.empty:
-    st.warning("No hay datos disponibles. Comprueba la conexión con Google Sheets.")
-    st.stop()
-
-df = preparar_revisiones(df_revisiones_raw)
+df = preparar_revisiones(df_revisiones_raw) if not df_revisiones_raw.empty else pd.DataFrame()
 
 # Filtro por fecha de hoy
 hoy = date.today()
@@ -32,14 +28,14 @@ with col2:
     if not df_hoy.empty and "PUNTUACION" in df_hoy.columns:
         st.metric("Media puntuación", f"{df_hoy['PUNTUACION'].mean():.2f}")
     else:
-        st.metric("Media puntuación", "—")
+        st.metric("Media puntuación", 0)
 
 with col3:
     if not df_hoy.empty and "ESTADO" in df_hoy.columns:
         abiertas = (df_hoy["ESTADO"].str.lower() == "abierta").sum()
         st.metric("Revisiones abiertas", int(abiertas))
     else:
-        st.metric("Revisiones abiertas", "—")
+        st.metric("Revisiones abiertas", 0)
 
 st.divider()
 
