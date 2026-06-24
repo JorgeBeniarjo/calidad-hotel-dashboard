@@ -47,6 +47,7 @@ cols_agg = ["PUNTUACION", "FECHA", "Camarera"]
 cols_agg = [c for c in cols_agg if c in df_filtrado.columns]
 
 if not df_filtrado.empty and "ID_HABITACION" in df_filtrado.columns and "PUNTUACION" in df_filtrado.columns:
+    df_filtrado["ID_HABITACION"] = df_filtrado["ID_HABITACION"].astype(str)
     df_ultimas = (
         df_filtrado.sort_values("FECHA")
         .groupby("ID_HABITACION")[cols_agg]
@@ -56,9 +57,10 @@ if not df_filtrado.empty and "ID_HABITACION" in df_filtrado.columns and "PUNTUAC
 else:
     df_ultimas = pd.DataFrame(columns=["ID_HABITACION", "PUNTUACION", "FECHA"])
 
-puntuacion_map = dict(zip(df_ultimas["ID_HABITACION"], df_ultimas["PUNTUACION"]))
+# Claves siempre como string para evitar desajustes de tipo
+puntuacion_map = dict(zip(df_ultimas["ID_HABITACION"].astype(str), df_ultimas["PUNTUACION"]))
 camarera_map = (
-    dict(zip(df_ultimas["ID_HABITACION"], df_ultimas["Camarera"]))
+    dict(zip(df_ultimas["ID_HABITACION"].astype(str), df_ultimas["Camarera"]))
     if "Camarera" in df_ultimas.columns
     else {}
 )
@@ -83,15 +85,26 @@ if "PLANTA" not in df_habitaciones.columns or "ID_HABITACION" not in df_habitaci
     st.error("La hoja HABITACIONES debe tener columnas PLANTA y ID_HABITACION.")
     st.stop()
 
-plantas = sorted(df_habitaciones["PLANTA"].dropna().astype(str).unique())
+def _sort_key(v):
+    try:
+        return (0, int(v), v)
+    except (ValueError, TypeError):
+        return (1, 0, v)
+
+plantas = sorted(df_habitaciones["PLANTA"].dropna().astype(str).unique(), key=_sort_key)
 
 # Renderizado por planta
 for planta in plantas:
     st.subheader(f"Planta {planta}")
-    habitaciones_planta = df_habitaciones[df_habitaciones["PLANTA"] == planta]["ID_HABITACION"].tolist()
+    # Comparar como string en ambos lados para evitar desajustes int/str
+    habitaciones_planta = (
+        df_habitaciones[df_habitaciones["PLANTA"].astype(str) == planta]["ID_HABITACION"]
+        .astype(str)
+        .tolist()
+    )
 
     celdas_html = []
-    for hab in sorted(habitaciones_planta):
+    for hab in sorted(habitaciones_planta, key=_sort_key):
         punt = puntuacion_map.get(hab, None)
         cam = camarera_map.get(hab, "")
         if punt is None:
