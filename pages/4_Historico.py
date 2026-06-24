@@ -1,10 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import date, timedelta
+import plotly.graph_objects as go
 
 from utils.sheets_connector import get_sheet_data
 from utils.data_processing import preparar_revisiones, get_nombre_camarera
+from utils.ui_components import date_filter_with_shortcuts
+from utils.export import download_excel_button
 
 st.set_page_config(page_title="Histórico", page_icon="📊", layout="wide")
 st.title("📊 Histórico de Revisiones")
@@ -28,12 +30,11 @@ elif "CAMARERA" in df.columns:
 else:
     df["Camarera"] = "—"
 
-# Panel de filtros
+# Panel de filtros en sidebar
 st.sidebar.header("Filtros")
+fecha_inicio, fecha_fin = date_filter_with_shortcuts(key_prefix="historico", default="30dias")
 
-hoy = date.today()
-fecha_inicio = st.sidebar.date_input("Desde", value=hoy - timedelta(days=90))
-fecha_fin = st.sidebar.date_input("Hasta", value=hoy)
+st.sidebar.markdown("---")
 
 camareras_disponibles = sorted(df["Camarera"].dropna().unique().tolist())
 camareras_sel = st.sidebar.multiselect("Camarera", options=camareras_disponibles, default=[])
@@ -62,6 +63,9 @@ if estados_sel and "ESTADO" in df_f.columns:
 if df_f.empty:
     st.info("No hay revisiones para los filtros seleccionados.")
     st.stop()
+
+label_periodo = f"{fecha_inicio.strftime('%d/%m/%Y')} — {fecha_fin.strftime('%d/%m/%Y')}"
+st.caption(f"Período: {label_periodo} · {len(df_f)} revisiones")
 
 # Gráfico de evolución diaria
 st.subheader("Evolución diaria de puntuación media")
@@ -109,6 +113,57 @@ st.plotly_chart(fig_hist, use_container_width=True)
 
 st.divider()
 
+# Heatmap calidad por planta × día de la semana
+if "PLANTA" in df_f.columns:
+    st.subheader("Calidad por Planta y Día de la Semana")
+
+    dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    dia_map = {
+        "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles",
+        "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo",
+    }
+    df_heat = df_f.copy()
+    df_heat["DiaSemana"] = df_heat["FECHA"].dt.day_name().map(dia_map)
+
+    pivot = (
+        df_heat.groupby(["PLANTA", "DiaSemana"])["PUNTUACION"]
+        .mean()
+        .unstack()
+        .reindex(columns=dias_es)
+    )
+
+    if not pivot.empty:
+        fig_heat = go.Figure(
+            go.Heatmap(
+                z=pivot.values,
+                x=dias_es,
+                y=[str(p) for p in pivot.index],
+                colorscale=[
+                    [0.0, "#e74c3c"],
+                    [0.3, "#f39c12"],
+                    [0.6, "#f1c40f"],
+                    [1.0, "#27ae60"],
+                ],
+                zmin=0,
+                zmax=10,
+                text=[[f"{v:.1f}" if pd.notna(v) else "—" for v in row] for row in pivot.values],
+                texttemplate="%{text}",
+                hovertemplate="Planta %{y} — %{x}<br>Puntuación media: %{z:.2f}<extra></extra>",
+                colorbar=dict(title="Puntuación"),
+            )
+        )
+        fig_heat.update_layout(
+            xaxis_title="Día de la semana",
+            yaxis_title="Planta",
+            margin=dict(l=60, r=20, t=20, b=40),
+            height=max(250, len(pivot) * 60),
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+    else:
+        st.info("No hay suficientes datos para generar el heatmap.")
+
+    st.divider()
+
 # Tabla completa filtrada
 st.subheader("Tabla de revisiones")
 
@@ -130,11 +185,9 @@ if "Fecha" in df_tabla.columns:
 
 st.dataframe(df_tabla, use_container_width=True, hide_index=True)
 
-# Descarga CSV
-csv = df_tabla.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="Descargar CSV",
-    data=csv,
-    file_name=f"revisiones_{fecha_inicio}_{fecha_fin}.csv",
-    mime="text/csv",
+download_excel_button(
+    df_tabla,
+    f"historico_{fecha_inicio}_{fecha_fin}.xlsx",
+    key="dl_historico",
+    sheet_name="Histórico",
 )

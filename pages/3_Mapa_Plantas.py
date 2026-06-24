@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
 
 from utils.sheets_connector import get_sheet_data
-from utils.data_processing import preparar_revisiones, color_puntuacion
+from utils.data_processing import preparar_revisiones, get_nombre_camarera, color_puntuacion
+from utils.ui_components import date_filter_with_shortcuts
+from utils.export import download_excel_button
 
 st.set_page_config(page_title="Mapa de Plantas", page_icon="🗺️", layout="wide")
 st.title("🗺️ Mapa de Plantas")
@@ -11,6 +12,7 @@ st.title("🗺️ Mapa de Plantas")
 # Carga de datos
 df_revisiones_raw = get_sheet_data("REVISIONES")
 df_habitaciones = get_sheet_data("HABITACIONES")
+df_personal = get_sheet_data("PERSONAL")
 
 if df_revisiones_raw.empty or df_habitaciones.empty:
     st.warning("No hay datos disponibles. Comprueba la conexión con Google Sheets.")
@@ -18,38 +20,51 @@ if df_revisiones_raw.empty or df_habitaciones.empty:
 
 df = preparar_revisiones(df_revisiones_raw)
 
-# Selector de fecha o rango
-modo = st.radio("Modo de filtro", ["Fecha única", "Rango de fechas"], horizontal=True)
-hoy = date.today()
-
-if modo == "Fecha única":
-    fecha_sel = st.date_input("Fecha", value=hoy)
-    mask = df["FECHA"].dt.date == fecha_sel
+# Añadir nombre de camarera
+id_col = "ID_PERSONAL" if "ID_PERSONAL" in df.columns else None
+if id_col and not df_personal.empty:
+    df["Camarera"] = df[id_col].apply(lambda x: get_nombre_camarera(x, df_personal))
+elif "CAMARERA" in df.columns:
+    df["Camarera"] = df["CAMARERA"]
 else:
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha_inicio = st.date_input("Desde", value=hoy - timedelta(days=7))
-    with col2:
-        fecha_fin = st.date_input("Hasta", value=hoy)
-    mask = (df["FECHA"].dt.date >= fecha_inicio) & (df["FECHA"].dt.date <= fecha_fin)
+    df["Camarera"] = "—"
 
+# Filtro de fecha en sidebar
+st.sidebar.header("Filtros")
+fecha_inicio, fecha_fin = date_filter_with_shortcuts(key_prefix="mapa", default="hoy")
+
+mask = (df["FECHA"].dt.date >= fecha_inicio) & (df["FECHA"].dt.date <= fecha_fin)
 df_filtrado = df[mask].copy()
 
-# Obtener la última puntuación por habitación
+label_periodo = (
+    fecha_inicio.strftime("%d/%m/%Y")
+    if fecha_inicio == fecha_fin
+    else f"{fecha_inicio.strftime('%d/%m/%Y')} — {fecha_fin.strftime('%d/%m/%Y')}"
+)
+
+# Obtener la última puntuación por habitación en el período
+cols_agg = ["PUNTUACION", "FECHA", "Camarera"]
+cols_agg = [c for c in cols_agg if c in df_filtrado.columns]
+
 if not df_filtrado.empty and "ID_HABITACION" in df_filtrado.columns and "PUNTUACION" in df_filtrado.columns:
     df_ultimas = (
         df_filtrado.sort_values("FECHA")
-        .groupby("ID_HABITACION")[["PUNTUACION", "FECHA"]]
+        .groupby("ID_HABITACION")[cols_agg]
         .last()
         .reset_index()
     )
 else:
     df_ultimas = pd.DataFrame(columns=["ID_HABITACION", "PUNTUACION", "FECHA"])
 
-# Mapa de puntuaciones por habitación
 puntuacion_map = dict(zip(df_ultimas["ID_HABITACION"], df_ultimas["PUNTUACION"]))
+camarera_map = (
+    dict(zip(df_ultimas["ID_HABITACION"], df_ultimas["Camarera"]))
+    if "Camarera" in df_ultimas.columns
+    else {}
+)
 
-# Leyenda
+# Leyenda de colores
+st.caption(f"Período: {label_periodo}")
 st.divider()
 col_r, col_n, col_v, col_g = st.columns(4)
 with col_r:
@@ -63,13 +78,14 @@ with col_g:
 
 st.divider()
 
-# Renderizado por planta
+# Validación de hoja HABITACIONES
 if "PLANTA" not in df_habitaciones.columns or "ID_HABITACION" not in df_habitaciones.columns:
     st.error("La hoja HABITACIONES debe tener columnas PLANTA y ID_HABITACION.")
     st.stop()
 
 plantas = sorted(df_habitaciones["PLANTA"].dropna().unique())
 
+# Renderizado por planta
 for planta in plantas:
     st.subheader(f"Planta {planta}")
     habitaciones_planta = df_habitaciones[df_habitaciones["PLANTA"] == planta]["ID_HABITACION"].tolist()
@@ -77,6 +93,7 @@ for planta in plantas:
     celdas_html = []
     for hab in sorted(habitaciones_planta):
         punt = puntuacion_map.get(hab, None)
+        cam = camarera_map.get(hab, "")
         if punt is None:
             bg = "#95a5a6"
             texto_punt = "—"
@@ -84,10 +101,11 @@ for planta in plantas:
             bg = color_puntuacion(punt)
             texto_punt = f"{punt:.1f}"
 
+        tooltip = f'title="{cam}"' if cam and cam != "—" else ""
         celda = (
-            f'<div style="background:{bg};color:white;border-radius:8px;'
+            f'<div {tooltip} style="background:{bg};color:white;border-radius:8px;'
             f'padding:10px 8px;text-align:center;min-width:70px;margin:4px;'
-            f'display:inline-block;font-size:13px;font-weight:bold;">'
+            f'display:inline-block;font-size:13px;font-weight:bold;cursor:default;">'
             f'<div style="font-size:15px;">{hab}</div>'
             f'<div style="opacity:0.9;">{texto_punt}</div>'
             f'</div>'
@@ -99,3 +117,37 @@ for planta in plantas:
         unsafe_allow_html=True,
     )
     st.markdown("")
+
+st.divider()
+
+# Export Excel como tabla de estado de habitaciones
+if not df_ultimas.empty:
+    st.subheader("Exportar estado de habitaciones")
+
+    df_export = df_ultimas.copy()
+
+    # Unir con info de habitaciones
+    df_info = df_habitaciones[["ID_HABITACION"] + [c for c in ["PLANTA", "TIPOLOGIA"] if c in df_habitaciones.columns]]
+    df_export = df_export.merge(df_info, on="ID_HABITACION", how="left")
+
+    # Formatear y renombrar
+    rename_map = {
+        "ID_HABITACION": "Habitación",
+        "PLANTA": "Planta",
+        "TIPOLOGIA": "Tipología",
+        "PUNTUACION": "Puntuación",
+        "FECHA": "Última revisión",
+        "Camarera": "Camarera",
+    }
+    cols_export = [c for c in rename_map if c in df_export.columns]
+    df_export = df_export[cols_export].rename(columns=rename_map)
+
+    if "Última revisión" in df_export.columns:
+        df_export["Última revisión"] = pd.to_datetime(df_export["Última revisión"]).dt.strftime("%d/%m/%Y")
+
+    download_excel_button(
+        df_export,
+        f"mapa_plantas_{fecha_inicio}_{fecha_fin}.xlsx",
+        key="dl_mapa",
+        sheet_name="Mapa Plantas",
+    )

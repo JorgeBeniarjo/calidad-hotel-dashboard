@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import date, timedelta
 
 from utils.sheets_connector import get_sheet_data
 from utils.data_processing import preparar_revisiones, get_nombre_camarera, color_puntuacion
+from utils.ui_components import date_filter_with_shortcuts
+from utils.export import download_excel_button
 
 st.set_page_config(page_title="Ranking Camareras", page_icon="🏆", layout="wide")
 st.title("🏆 Ranking de Camareras")
@@ -20,13 +21,9 @@ if df_revisiones_raw.empty:
 
 df = preparar_revisiones(df_revisiones_raw)
 
-# Selector de rango de fechas
-hoy = date.today()
-col_f1, col_f2 = st.columns(2)
-with col_f1:
-    fecha_inicio = st.date_input("Desde", value=hoy - timedelta(days=30))
-with col_f2:
-    fecha_fin = st.date_input("Hasta", value=hoy)
+# Filtro de fecha en sidebar
+st.sidebar.header("Filtros")
+fecha_inicio, fecha_fin = date_filter_with_shortcuts(key_prefix="ranking", default="30dias")
 
 if fecha_inicio > fecha_fin:
     st.error("La fecha de inicio no puede ser posterior a la fecha de fin.")
@@ -51,19 +48,28 @@ elif "CAMARERA" in df_filtrado.columns:
 else:
     df_filtrado["Camarera"] = df_filtrado.get(id_col, pd.Series(["—"] * len(df_filtrado)))
 
+label_periodo = f"{fecha_inicio.strftime('%d/%m/%Y')} — {fecha_fin.strftime('%d/%m/%Y')}"
+st.caption(f"Período: {label_periodo}")
 st.divider()
 
 # Calcular ranking
-tiene_repaso = "REPASO" in df_filtrado.columns or "CON_REPASO" in df_filtrado.columns
-repaso_col = "REPASO" if "REPASO" in df_filtrado.columns else ("CON_REPASO" if "CON_REPASO" in df_filtrado.columns else None)
+repaso_col = None
+if "REPASO" in df_filtrado.columns:
+    repaso_col = "REPASO"
+elif "CON_REPASO" in df_filtrado.columns:
+    repaso_col = "CON_REPASO"
 
-agg_dict = {"PUNTUACION": ["mean", "count"]}
-ranking = df_filtrado.groupby("Camarera").agg(agg_dict).reset_index()
-ranking.columns = ["Camarera", "Media", "Total"]
+ranking = (
+    df_filtrado.groupby("Camarera")
+    .agg(Media=("PUNTUACION", "mean"), Total=("PUNTUACION", "count"))
+    .reset_index()
+)
 ranking["Media"] = ranking["Media"].round(2)
 
 if repaso_col:
-    df_filtrado["_repaso_flag"] = df_filtrado[repaso_col].astype(str).str.lower().isin(["sí", "si", "s", "1", "true", "yes"])
+    df_filtrado["_repaso_flag"] = df_filtrado[repaso_col].astype(str).str.lower().isin(
+        ["sí", "si", "s", "1", "true", "yes"]
+    )
     repasos = df_filtrado.groupby("Camarera")["_repaso_flag"].mean().reset_index()
     repasos.columns = ["Camarera", "PctRepaso"]
     ranking = ranking.merge(repasos, on="Camarera", how="left")
@@ -76,6 +82,13 @@ ranking.insert(0, "Posición", ranking.index + 1)
 # Tabla ranking
 st.subheader("Tabla de Ranking")
 st.dataframe(ranking, use_container_width=True, hide_index=True)
+
+download_excel_button(
+    ranking,
+    f"ranking_camareras_{fecha_inicio}_{fecha_fin}.xlsx",
+    key="dl_ranking",
+    sheet_name="Ranking",
+)
 
 st.divider()
 
@@ -131,3 +144,51 @@ else:
         margin=dict(l=10, r=10, t=20, b=20),
     )
     st.plotly_chart(fig_linea, use_container_width=True)
+
+st.divider()
+
+# Tendencia individual por camarera
+with st.expander("📈 Tendencia individual por camarera"):
+    camareras_lista = sorted(df_filtrado["Camarera"].dropna().unique())
+    if not camareras_lista:
+        st.info("No hay datos de camareras disponibles.")
+    else:
+        cam_sel = st.selectbox("Seleccionar camarera", camareras_lista, key="tendencia_camarera")
+        df_cam = df_filtrado[df_filtrado["Camarera"] == cam_sel].copy()
+        df_cam["Fecha"] = df_cam["FECHA"].dt.date
+
+        evolucion_cam = (
+            df_cam.groupby("Fecha")["PUNTUACION"]
+            .mean()
+            .reset_index()
+            .rename(columns={"PUNTUACION": "Media"})
+        )
+        evolucion_cam["Media"] = evolucion_cam["Media"].round(2)
+
+        if evolucion_cam.empty:
+            st.info(f"No hay datos para {cam_sel} en el período seleccionado.")
+        else:
+            fig_tend = px.line(
+                evolucion_cam,
+                x="Fecha",
+                y="Media",
+                markers=True,
+                title=f"Evolución diaria — {cam_sel}",
+                color_discrete_sequence=["#2a73cc"],
+                labels={"Media": "Puntuación media", "Fecha": ""},
+            )
+            fig_tend.update_layout(
+                yaxis=dict(range=[0, 10]),
+                plot_bgcolor="white",
+                margin=dict(l=10, r=10, t=40, b=20),
+            )
+            st.plotly_chart(fig_tend, use_container_width=True)
+
+            evolucion_cam_export = evolucion_cam.copy()
+            evolucion_cam_export["Fecha"] = evolucion_cam_export["Fecha"].astype(str)
+            download_excel_button(
+                evolucion_cam_export,
+                f"tendencia_{cam_sel}_{fecha_inicio}_{fecha_fin}.xlsx",
+                key="dl_tendencia",
+                sheet_name="Tendencia",
+            )

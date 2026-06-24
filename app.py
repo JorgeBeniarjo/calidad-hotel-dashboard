@@ -23,13 +23,6 @@ st.markdown(
     "Usa el menú lateral para navegar entre secciones."
 )
 
-st.sidebar.title("Navegación")
-st.sidebar.page_link("app.py", label="Inicio")
-st.sidebar.page_link("pages/1_Resumen_Dia.py", label="Resumen del Día")
-st.sidebar.page_link("pages/2_Ranking_Camareras.py", label="Ranking Camareras")
-st.sidebar.page_link("pages/3_Mapa_Plantas.py", label="Mapa de Plantas")
-st.sidebar.page_link("pages/4_Historico.py", label="Histórico")
-
 # Métricas rápidas
 st.subheader("Resumen de hoy")
 
