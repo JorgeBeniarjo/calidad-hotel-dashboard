@@ -39,7 +39,7 @@ st.sidebar.markdown("---")
 camareras_disponibles = sorted(df["Camarera"].dropna().unique().tolist())
 camareras_sel = st.sidebar.multiselect("Camarera", options=camareras_disponibles, default=[])
 
-plantas_disponibles = sorted(df["PLANTA"].dropna().unique().tolist()) if "PLANTA" in df.columns else []
+plantas_disponibles = sorted(df["PLANTA"].dropna().astype(str).unique().tolist()) if "PLANTA" in df.columns else []
 plantas_sel = st.sidebar.multiselect("Planta", options=plantas_disponibles, default=[])
 
 estados_disponibles = sorted(df["ESTADO"].dropna().unique().tolist()) if "ESTADO" in df.columns else []

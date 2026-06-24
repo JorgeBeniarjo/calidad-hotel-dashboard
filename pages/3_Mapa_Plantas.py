@@ -83,7 +83,7 @@ if "PLANTA" not in df_habitaciones.columns or "ID_HABITACION" not in df_habitaci
     st.error("La hoja HABITACIONES debe tener columnas PLANTA y ID_HABITACION.")
     st.stop()
 
-plantas = sorted(df_habitaciones["PLANTA"].dropna().unique())
+plantas = sorted(df_habitaciones["PLANTA"].dropna().astype(str).unique())
 
 # Renderizado por planta
 for planta in plantas:
