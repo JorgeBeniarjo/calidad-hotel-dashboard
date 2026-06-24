@@ -43,6 +43,9 @@ if hab_col is None:
     st.error("No se encontró columna de habitación (ID_HABITACION o HABITACION).")
     st.stop()
 
+# Eliminar filas sin habitación antes de agrupar
+df_f = df_f[df_f[hab_col].notna() & (df_f[hab_col].astype(str).str.strip() != "")]
+
 # Calcular métricas por habitación
 ranking_hab = (
     df_f.groupby(hab_col)
@@ -58,6 +61,7 @@ ranking_hab = (
     })
 )
 ranking_hab["Puntuación Media"] = ranking_hab["Puntuación Media"].round(2)
+ranking_hab["Nº Revisiones"] = ranking_hab["Nº Revisiones"].astype(int)
 
 # Añadir repasos si existe la columna
 repaso_col = None
@@ -94,6 +98,18 @@ elif "PLANTA" in df_f.columns:
 
 # Renombrar y reordenar columnas
 ranking_hab = ranking_hab.rename(columns={"PLANTA": "Planta", "TIPOLOGIA": "Tipología"})
+
+# Limpiar Planta: float 2.0 → "2"
+if "Planta" in ranking_hab.columns:
+    def _fmt_planta(x):
+        if pd.isna(x) or str(x).strip() in ("", "nan", "None"):
+            return ""
+        try:
+            return str(int(float(x)))
+        except (ValueError, TypeError):
+            return str(x)
+    ranking_hab["Planta"] = ranking_hab["Planta"].apply(_fmt_planta)
+
 cols_orden = ["Habitación"]
 for c in ["Planta", "Tipología", "Puntuación Media", "Nº Revisiones", "Nº Repasos", "% Repasos"]:
     if c in ranking_hab.columns:
@@ -134,8 +150,11 @@ def estilo_puntuacion(val):
 
 
 if "Puntuación Media" in ranking_hab.columns:
+    fmt = {"Puntuación Media": "{:.2f}"}
     st.dataframe(
-        ranking_hab.style.map(estilo_puntuacion, subset=["Puntuación Media"]),
+        ranking_hab.style
+        .map(estilo_puntuacion, subset=["Puntuación Media"])
+        .format(fmt),
         use_container_width=True,
         hide_index=True,
     )
