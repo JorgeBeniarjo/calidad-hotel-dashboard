@@ -50,14 +50,14 @@ df_f = df_f[df_f[hab_col].notna() & (df_f[hab_col].astype(str).str.strip() != ""
 ranking_hab = (
     df_f.groupby(hab_col)
     .agg(
-        Puntuación_Media=("PUNTUACION", "mean"),
-        Nº_Revisiones=("PUNTUACION", "count"),
+        puntuacion_media=("PUNTUACION", "mean"),
+        n_revisiones=("PUNTUACION", "count"),
     )
     .reset_index()
     .rename(columns={
         hab_col: "Habitación",
-        "Puntuación_Media": "Puntuación Media",
-        "Nº_Revisiones": "Nº Revisiones",
+        "puntuacion_media": "Puntuación Media",
+        "n_revisiones": "Nº Revisiones",
     })
 )
 ranking_hab["Puntuación Media"] = ranking_hab["Puntuación Media"].round(2)
